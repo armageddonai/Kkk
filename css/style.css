@@ -746,17 +746,8 @@ button:disabled { cursor: not-allowed; }
   transition: left 0.1s linear, bottom 0.1s linear;
   filter: drop-shadow(0 0 10px rgba(255, 182, 39, 0.6));
 }
-.crash-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
-.crash-controls label { display: flex; flex-direction: column; gap: 5px; font-size: 0.75rem; color: var(--muted); }
-.crash-controls input {
-  background: var(--card-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text);
-  font-family: inherit;
-  padding: 10px 12px;
-  width: 130px;
-}
+.crash-wager { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-bottom: 12px; min-height: 8px; }
+.crash-controls { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 
 /* ===== Chat ===== */
 #view-chat { display: flex; flex-direction: column; height: calc(100vh - 210px); }

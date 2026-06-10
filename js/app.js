@@ -78,7 +78,7 @@ $("#sound-btn").addEventListener("click", () => {
 
 /* ---------- state ---------- */
 
-let user = null;            // { name, avatar, cash, items: [itemId], lastBonus }
+let user = null;            // { name, avatar, items: [itemId], lastBonus }
 let lobbies = [];           // coinflip lobbies
 let history = [];           // finished games
 let jackpot = { entries: [], timer: 20, userEntered: false, drawing: false };
@@ -95,7 +95,11 @@ function save() {
 function load() {
   try {
     const raw = localStorage.getItem("bloxyspin-user");
-    if (raw) { user = JSON.parse(raw); onLoggedIn(); }
+    if (raw) {
+      user = JSON.parse(raw);
+      delete user.cash; // pre-item-economy saves had a coin balance
+      onLoggedIn();
+    }
     const h = localStorage.getItem("bloxyspin-history");
     if (h) history = JSON.parse(h);
   } catch (_) { /* fresh start */ }
@@ -187,7 +191,6 @@ function doLogin() {
   user = {
     name,
     avatar: rand(["🙂", "😎", "🥷", "👾", "🤖", "🦊", "🐱"]),
-    cash: STARTER_CASH,
     items: [...STARTER_ITEMS],
     lastBonus: 0,
   };
@@ -212,7 +215,7 @@ function onLoggedIn() {
 }
 
 function updateWallet() {
-  $("#wallet-value").textContent = fmt(user.cash + itemsValue(user.items));
+  $("#wallet-value").textContent = `${fmt(itemsValue(user.items))} · ${user.items.length} 🚗`;
   save();
 }
 
@@ -239,12 +242,13 @@ $("#gift-btn").addEventListener("click", () => {
     return toast(`Next daily bonus in ${h}h ${m}m ⏳`);
   }
   user.lastBonus = Date.now();
-  user.cash += DAILY_BONUS;
+  const gift = rand(ITEMS.filter(i => i.value <= DAILY_BONUS_MAX));
+  user.items.push(gift.id);
   updateWallet();
   updateGift();
   confetti();
   sfx.win();
-  toast(`🎁 Daily bonus: +🪙 ${fmt(DAILY_BONUS)}!`, "success");
+  toast(`🎁 Daily ride: ${gift.icon} ${gift.name} (🪙 ${fmt(gift.value)})!`, "success");
 });
 
 setInterval(updateGift, 60000);
@@ -255,7 +259,7 @@ function renderLeaderboard() {
   const rows = BOTS.slice(0, 7).map(b => ({
     name: b.name, avatar: b.avatar, value: randInt(8, 120) * 250000, me: false,
   }));
-  if (user) rows.push({ name: user.name, avatar: user.avatar, value: user.cash + itemsValue(user.items), me: true });
+  if (user) rows.push({ name: user.name, avatar: user.avatar, value: itemsValue(user.items), me: true });
   rows.sort((a, b) => b.value - a.value);
   $("#leaderboard").innerHTML = rows.slice(0, 8).map((r, i) =>
     `<div class="lb-row ${r.me ? "me" : ""}">
@@ -721,21 +725,25 @@ function renderCrashBusts() {
 
 $("#crash-start").addEventListener("click", () => {
   if (!requireLogin() || crash) return;
-  const bet = Number($("#crash-bet").value) || 0;
-  if (bet < 1000) return toast("Minimum bet is 🪙 1,000.", "error");
-  if (bet > user.cash) return toast(`Not enough coins — you have 🪙 ${fmt(user.cash)}.`, "error");
-  user.cash -= bet;
-  updateWallet();
+  openPicker({
+    title: "Wager rides on Crash",
+    onConfirm: (ids) => startCrashRound(ids),
+  });
+});
+
+function startCrashRound(wager) {
+  const bet = itemsValue(wager);
+  $("#crash-wager").innerHTML = wager.map(itemChip).join("");
 
   // bust point: 1/(1-u) gives a fair heavy-tail curve, capped at 100x
   const bust = Math.min(100, Math.max(1, 0.99 / (1 - Math.random())));
-  crash = { bet, bust, mult: 1, t: 0 };
+  crash = { wager, bet, bust, mult: 1, t: 0 };
 
   $("#crash-start").classList.add("hidden");
   $("#crash-cashout").classList.remove("hidden");
   const multEl = $("#crash-mult");
   multEl.className = "crash-mult";
-  $("#crash-msg").textContent = "Hold on… 🚀";
+  $("#crash-msg").textContent = `🪙 ${fmt(bet)} on board — hold on… 🚀`;
 
   crash.timer = setInterval(() => {
     crash.t += 0.05;
@@ -749,32 +757,36 @@ $("#crash-start").addEventListener("click", () => {
     rocket.style.bottom = (6 + p * 70) + "%";
     if (Math.random() < 0.2) sfx.tick();
   }, 50);
-});
+}
 
 $("#crash-cashout").addEventListener("click", () => {
   if (!crash) return;
-  const winnings = Math.floor(crash.bet * crash.mult);
-  const mult = crash.mult;
+  const { wager, bet, mult } = crash;
   stopCrash();
-  user.cash += winnings;
+  // keep your rides and win extra ones worth the profit
+  const winnings = matchItems(bet * (mult - 1));
+  user.items.push(...wager, ...winnings);
   updateWallet();
   const multEl = $("#crash-mult");
   multEl.classList.add("cashed");
-  $("#crash-msg").textContent = `💰 Cashed out 🪙 ${fmt(winnings)} at ${mult.toFixed(2)}x!`;
+  const names = winnings.map(id => `${ITEM_BY_ID[id].icon} ${ITEM_BY_ID[id].name}`).join(", ");
+  $("#crash-msg").textContent = `💰 Cashed out at ${mult.toFixed(2)}x — won ${names}!`;
+  history.unshift({ game: "Crash", vs: `${mult.toFixed(2)}x`, value: itemsValue(winnings), won: true, time: nowTime() });
   if (mult >= 1.5) confetti();
   sfx.win();
 });
 
 function bustCrash() {
-  const bust = crash.bust;
-  const bet = crash.bet;
+  const { bust, bet } = crash;
   stopCrash();
   crashBusts.push(bust);
   renderCrashBusts();
   const multEl = $("#crash-mult");
   multEl.textContent = bust.toFixed(2) + "x";
   multEl.classList.add("busted");
-  $("#crash-msg").textContent = `💥 Busted at ${bust.toFixed(2)}x — lost 🪙 ${fmt(bet)}.`;
+  $("#crash-msg").textContent = `💥 Busted at ${bust.toFixed(2)}x — your rides are gone (🪙 ${fmt(bet)}).`;
+  history.unshift({ game: "Crash", vs: `${bust.toFixed(2)}x`, value: bet, won: false, time: nowTime() });
+  updateWallet();
   sfx.bomb();
 }
 
@@ -783,6 +795,7 @@ function stopCrash() {
   crash = null;
   $("#crash-start").classList.remove("hidden");
   $("#crash-cashout").classList.add("hidden");
+  $("#crash-wager").innerHTML = "";
   const rocket = $("#crash-rocket");
   rocket.style.left = "8%";
   rocket.style.bottom = "6%";

@@ -72,8 +72,7 @@ const RARITY_LABEL = { godly: "GODLY", legendary: "LEGENDARY", epic: "EPIC", rar
 
 // Starter garage handed out on login.
 const STARTER_ITEMS = ["stallion", "beignet", "bananacar", "littlebird", "roadster", "lambo", "camaro", "dirtbike"];
-const STARTER_CASH = 500000;
-const DAILY_BONUS = 300000;
+const DAILY_BONUS_MAX = 500000; // daily gift is a random ride worth up to this
 
 const BOTS = [
   { name: "tgfsix",             avatar: "🥷", verified: true },
@@ -115,6 +114,6 @@ const CHAT_LINES = [
   "who else camping rising city",
   "crash to 10x watch this",
   "bro cashed out at 1.01x 💀",
-  "daily wheel just gave me 300k W",
+  "daily gift just gave me a free ride W",
   "1v1 me mines 5 bombs rn",
 ];
