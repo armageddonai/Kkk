@@ -29,8 +29,14 @@ body {
 }
 
 button { font-family: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); font-size: 0.85rem; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* ===== Header ===== */
 .topbar {
@@ -154,6 +160,32 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 10px;
 }
 .banner h1 { font-size: 1.5rem; line-height: 1.25; margin-bottom: 14px; }
+
+/* ===== Live ticker ===== */
+.ticker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-label {
+  color: var(--green);
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+.ticker-label::before { content: "● "; animation: blink 1.4s infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+#ticker-text { overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+#ticker-text strong { color: var(--text); }
 
 /* ===== Game cards ===== */
 .game-cards {
@@ -584,6 +616,52 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent);
 }
+
+/* ===== Toasts ===== */
+.toasts {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(92vw, 380px);
+  pointer-events: none;
+}
+.toast {
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: toastIn 0.25s ease, toastOut 0.3s ease 3.2s forwards;
+}
+.toast.success { border-left-color: var(--green); }
+.toast.error { border-left-color: var(--red); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }
+
+/* ===== Confetti ===== */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 300; overflow: hidden; }
+.confetti i {
+  position: absolute;
+  top: -12px;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  to { transform: translateY(110vh) rotate(720deg); opacity: 0.6; }
+}
+
+/* ===== Mobile safe areas ===== */
+.bottombar { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 
 @media (min-width: 760px) {
   .banner h1 { font-size: 2rem; }
