@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BloxySpin — Roblox Jailbreak</title>
-  <meta name="description" content="BloxySpin-style demo site for Roblox Jailbreak. Coinflip, Jackpot and Mine Battles with virtual demo items only. Not affiliated with Roblox." />
-  <meta name="theme-color" content="#0b0e16" />
-  <meta property="og:title" content="BloxySpin — Roblox Jailbreak" />
-  <meta property="og:description" content="Coinflip, Jackpot and Mine Battles with Jailbreak rides. 100% free demo — pretend coins only." />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>BloxySpin — Roblox Jailbreak 1v1s</title>
+  <meta name="description" content="BloxySpin-style demo site for Roblox Jailbreak. 1v1 Coinflip, PVP Mines, Crash and Jackpot with virtual demo items only. Not affiliated with Roblox." />
+  <meta name="theme-color" content="#0a0d15" />
+  <meta property="og:title" content="BloxySpin — Roblox Jailbreak 1v1s" />
+  <meta property="og:description" content="1v1 Coinflip, PVP Mines, Crash and Jackpot with Jailbreak rides. 100% free demo — pretend coins only." />
   <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%232979ff'/><text x='50' y='66' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>B</text></svg>" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -20,7 +23,16 @@
       <span class="logo-mark">⬡</span>
       <span class="logo-text">BLOXY<br /><em>SPIN</em></span>
     </a>
+    <nav class="topnav">
+      <a href="#" data-nav="coinflip">Coinflip</a>
+      <a href="#" data-nav="mines">PVP Mines</a>
+      <a href="#" data-nav="crash">Crash</a>
+      <a href="#" data-nav="jackpot">Jackpot</a>
+      <a href="#" data-nav="inventory">Garage</a>
+    </nav>
     <div class="topbar-right">
+      <button id="sound-btn" class="icon-btn" title="Toggle sound">🔊</button>
+      <button id="gift-btn" class="icon-btn gift" title="Daily bonus">🎁</button>
       <div id="wallet" class="wallet hidden">
         <span class="coin">🪙</span>
         <span id="wallet-value">0</span>
@@ -40,9 +52,12 @@
     <section id="view-home" class="view">
       <div class="banner">
         <div class="banner-inner">
-          <span class="banner-tag">🎉 A NEW GAMEMODE IS OUT!</span>
-          <h1>Play our new gamemode<br />PVP Mines! 🔥</h1>
-          <button class="btn btn-light" data-nav="mines">Play Now!</button>
+          <span class="banner-tag">⚔️ THE 1v1 ARENA IS OPEN</span>
+          <h1>Bet your rides.<br />Win theirs. <span class="grad-text">1v1.</span></h1>
+          <div class="banner-btns">
+            <button class="btn btn-light" data-nav="mines">⚔️ PVP Mines</button>
+            <button class="btn btn-glass" data-nav="coinflip">🪙 Coinflip</button>
+          </div>
         </div>
       </div>
 
@@ -53,38 +68,27 @@
         <button class="game-card" data-nav="coinflip">
           <div class="game-card-art">🪙</div>
           <div class="game-card-name">COINFLIP</div>
-          <div class="game-card-sub">ORIGINALS</div>
+          <div class="game-card-sub">1v1 ORIGINAL</div>
         </button>
         <button class="game-card" data-nav="mines">
           <div class="game-card-art">💎💣</div>
           <div class="game-card-name">PVP MINES</div>
-          <div class="game-card-sub">ORIGINALS</div>
+          <div class="game-card-sub">1v1 ORIGINAL</div>
+        </button>
+        <button class="game-card" data-nav="crash">
+          <div class="game-card-art">🚀</div>
+          <div class="game-card-name">CRASH</div>
+          <div class="game-card-sub">ORIGINAL</div>
         </button>
         <button class="game-card" data-nav="jackpot">
           <div class="game-card-art">🎰</div>
           <div class="game-card-name">JACKPOT</div>
-          <div class="game-card-sub">ORIGINALS</div>
+          <div class="game-card-sub">ORIGINAL</div>
         </button>
       </div>
 
-      <h2 class="section-title">Games</h2>
-      <div class="list-rows">
-        <button class="list-row" data-nav="coinflip">
-          <span class="row-icon">🏠</span>
-          <span class="row-text"><strong>Coinflip</strong><small>Heads or tails?</small></span>
-          <span class="row-arrow">›</span>
-        </button>
-        <button class="list-row" data-nav="jackpot">
-          <span class="row-icon">🚀</span>
-          <span class="row-text"><strong>Jackpot</strong><small>Grand prize win?</small></span>
-          <span class="row-arrow">›</span>
-        </button>
-        <button class="list-row" data-nav="mines">
-          <span class="row-icon">💣</span>
-          <span class="row-text"><strong>Mine Battles</strong><small>Find the gems!</small></span>
-          <span class="row-arrow">›</span>
-        </button>
-      </div>
+      <h2 class="section-title">🏆 Top players today</h2>
+      <div id="leaderboard" class="leaderboard card"></div>
 
       <h2 class="section-title">Utilities</h2>
       <div class="util-grid">
@@ -100,7 +104,7 @@
         </button>
         <button class="util-card" data-nav="inventory">
           <span class="util-icon">🎒</span>
-          <strong>Inventory</strong>
+          <strong>Garage</strong>
           <small>Your Jailbreak rides</small>
         </button>
         <button class="util-card" data-nav="chat">
@@ -130,38 +134,83 @@
       <div id="cf-lobbies" class="lobby-list"></div>
     </section>
 
+    <!-- ---- PVP MINES (1v1) ---- -->
+    <section id="view-mines" class="view hidden">
+      <h2 class="section-title">⚔️ PVP Mines</h2>
+
+      <div id="mines-setup" class="card mines-card">
+        <p class="muted" style="margin-bottom:12px">Wager your rides against another player. Take turns picking tiles — hit a bomb and your opponent takes <strong>everything</strong>.</p>
+        <div class="mines-controls">
+          <label>Bombs
+            <select id="mines-count"><option>3</option><option selected>5</option><option>10</option></select>
+          </label>
+          <button id="mines-find" class="btn btn-primary">⚔️ Find 1v1 match</button>
+        </div>
+      </div>
+
+      <div id="mines-match" class="card mines-card hidden">
+        <div class="mines-vs">
+          <div class="mines-player" id="mines-p-you">
+            <span id="mines-av-you" class="avatar avatar-md side-h">🙂</span>
+            <strong id="mines-name-you">You</strong>
+          </div>
+          <div class="mines-pot">
+            <small>POT</small>
+            <span id="mines-pot-value">🪙 0</span>
+          </div>
+          <div class="mines-player" id="mines-p-opp">
+            <span id="mines-av-opp" class="avatar avatar-md side-t">🤖</span>
+            <strong id="mines-name-opp">—</strong>
+          </div>
+        </div>
+        <div id="mines-grid" class="mines-grid"></div>
+        <div id="mines-msg" class="mines-msg"></div>
+        <button id="mines-again" class="btn btn-primary btn-wide hidden">⚔️ Play again</button>
+      </div>
+    </section>
+
+    <!-- ---- CRASH ---- -->
+    <section id="view-crash" class="view hidden">
+      <h2 class="section-title">🚀 Crash</h2>
+      <div class="card crash-card">
+        <div id="crash-busts" class="crash-busts"></div>
+        <div id="crash-stage" class="crash-stage">
+          <div id="crash-mult" class="crash-mult">1.00x</div>
+          <div id="crash-rocket" class="crash-rocket">🚀</div>
+        </div>
+        <div class="crash-controls">
+          <label>Bet <input id="crash-bet" type="number" min="1000" step="1000" value="50000" /></label>
+          <button id="crash-start" class="btn btn-primary">Place bet</button>
+          <button id="crash-cashout" class="btn btn-light hidden">Cash out</button>
+        </div>
+        <div id="crash-msg" class="mines-msg">Cash out before the rocket busts!</div>
+      </div>
+    </section>
+
     <!-- ---- JACKPOT ---- -->
     <section id="view-jackpot" class="view hidden">
-      <h2 class="section-title">Jackpot</h2>
+      <h2 class="section-title">🎰 Jackpot</h2>
       <div class="jackpot-pot card">
         <div class="jp-timer">Drawing in <span id="jp-timer">20</span>s</div>
         <div class="jp-value" id="jp-value">🪙 0</div>
+        <div id="jp-wheel" class="jp-wheel hidden"><div id="jp-strip" class="jp-strip"></div><div class="jp-needle"></div></div>
         <div id="jp-entries" class="jp-entries"></div>
         <button id="jp-join-btn" class="btn btn-primary btn-wide">Deposit items</button>
       </div>
       <div id="jp-result" class="jp-result hidden"></div>
     </section>
 
-    <!-- ---- MINES ---- -->
-    <section id="view-mines" class="view hidden">
-      <h2 class="section-title">PVP Mines 💣</h2>
-      <div class="card mines-card">
-        <div class="mines-controls">
-          <label>Bet <input id="mines-bet" type="number" min="1000" step="1000" value="100000" /></label>
-          <label>Mines
-            <select id="mines-count"><option>3</option><option>5</option><option>10</option></select>
-          </label>
-          <button id="mines-start" class="btn btn-primary">Start</button>
-          <button id="mines-cashout" class="btn btn-light hidden">Cash out <span id="mines-mult">1.00x</span></button>
-        </div>
-        <div id="mines-grid" class="mines-grid"></div>
-        <div id="mines-msg" class="mines-msg">Find the gems 💎 — avoid the bombs!</div>
-      </div>
-    </section>
-
     <!-- ---- INVENTORY ---- -->
     <section id="view-inventory" class="view hidden">
-      <h2 class="section-title">Your Garage 🚗</h2>
+      <h2 class="section-title">🎒 Your Garage</h2>
+      <div class="toolbar">
+        <input id="inv-search" class="search-input" type="text" placeholder="Search rides…" />
+        <select id="inv-sort" class="select-input">
+          <option value="value-desc">Value ↓</option>
+          <option value="value-asc">Value ↑</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
       <div id="inv-grid" class="inv-grid"></div>
     </section>
 

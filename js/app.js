@@ -1,4 +1,4 @@
-// ===== BloxySpin (Jailbreak edition) — demo app =====
+// ===== BloxySpin (Jailbreak edition) — premium demo app =====
 // Everything runs locally in the browser with pretend currency. Nothing is real.
 
 /* ---------- helpers ---------- */
@@ -23,13 +23,68 @@ function nowTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// Picks bot items whose total lands inside [target*0.95, target*1.1].
+function matchItems(target) {
+  const out = [];
+  let v = 0;
+  while (v < target * 0.95) {
+    const pool = ITEMS.filter(i => v + i.value <= target * 1.1);
+    if (!pool.length) break;
+    const pick = rand(pool);
+    out.push(pick.id);
+    v += pick.value;
+  }
+  if (!out.length) out.push(ITEMS[ITEMS.length - 1].id);
+  return out;
+}
+
+/* ---------- sound (tiny WebAudio synth) ---------- */
+
+let soundOn = localStorage.getItem("bloxyspin-sound") !== "off";
+let audioCtx = null;
+
+function beep(freq, dur = 0.08, type = "sine", gain = 0.06, delay = 0) {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime + delay;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+  } catch (_) { /* audio unavailable */ }
+}
+
+const sfx = {
+  click: () => beep(600, 0.05, "triangle", 0.05),
+  tick: () => beep(900, 0.03, "square", 0.03),
+  win: () => { beep(523, 0.12, "triangle", 0.07); beep(659, 0.12, "triangle", 0.07, 0.1); beep(784, 0.22, "triangle", 0.08, 0.2); },
+  lose: () => { beep(220, 0.2, "sawtooth", 0.05); beep(150, 0.3, "sawtooth", 0.05, 0.12); },
+  bomb: () => beep(80, 0.4, "sawtooth", 0.12),
+  gem: () => beep(1100, 0.07, "triangle", 0.05),
+};
+
+$("#sound-btn").addEventListener("click", () => {
+  soundOn = !soundOn;
+  localStorage.setItem("bloxyspin-sound", soundOn ? "on" : "off");
+  $("#sound-btn").textContent = soundOn ? "🔊" : "🔇";
+  if (soundOn) sfx.click();
+});
+
 /* ---------- state ---------- */
 
-let user = null;            // { name, avatar, cash, items: [itemId] }
+let user = null;            // { name, avatar, cash, items: [itemId], lastBonus }
 let lobbies = [];           // coinflip lobbies
-let history = [];           // finished coinflips
-let jackpot = { entries: [], timer: 20, userEntered: false };
-let mines = null;           // active mines round
+let history = [];           // finished games
+let jackpot = { entries: [], timer: 20, userEntered: false, drawing: false };
+let mines = null;           // active 1v1 mines match
+let crash = null;           // active crash round
+let crashBusts = [];
 
 /* ---------- persistence ---------- */
 
@@ -48,12 +103,13 @@ function load() {
 
 /* ---------- navigation ---------- */
 
-const VIEWS = ["home", "coinflip", "jackpot", "mines", "inventory", "chat"];
-const TAB_FOR_VIEW = { home: "home", coinflip: "coinflip", jackpot: "coinflip", mines: "coinflip", inventory: "home", chat: "chat" };
+const VIEWS = ["home", "coinflip", "jackpot", "mines", "crash", "inventory", "chat"];
+const TAB_FOR_VIEW = { home: "home", coinflip: "coinflip", jackpot: "coinflip", mines: "coinflip", crash: "coinflip", inventory: "home", chat: "chat" };
 
 function navigate(view) {
   VIEWS.forEach(v => $("#view-" + v).classList.toggle("hidden", v !== view));
   $$(".bottombar .tab").forEach(t => t.classList.toggle("active", t.dataset.nav === TAB_FOR_VIEW[view]));
+  if (view === "home") renderLeaderboard();
   if (view === "inventory") renderInventory();
   if (view === "coinflip") renderLobbies();
   if (view === "chat") scrollChat();
@@ -62,7 +118,7 @@ function navigate(view) {
 
 document.addEventListener("click", (e) => {
   const nav = e.target.closest("[data-nav]");
-  if (nav) { e.preventDefault(); navigate(nav.dataset.nav); }
+  if (nav) { e.preventDefault(); sfx.click(); navigate(nav.dataset.nav); }
   if (e.target.closest("[data-close]")) closeModal();
 });
 
@@ -93,8 +149,8 @@ function toast(text, kind = "") {
 
 function confetti() {
   const box = $("#confetti");
-  const colors = ["#2979ff", "#ffb627", "#2ee06f", "#ff4d5e", "#b35cff", "#4d94ff"];
-  for (let i = 0; i < 60; i++) {
+  const colors = ["#2979ff", "#ffb627", "#2ee06f", "#ff4d5e", "#b35cff", "#5b9bff"];
+  for (let i = 0; i < 70; i++) {
     const p = document.createElement("i");
     p.style.left = Math.random() * 100 + "vw";
     p.style.background = rand(colors);
@@ -107,7 +163,7 @@ function confetti() {
 
 const INFO_PAGES = {
   support: ["❓ Support", "This is a free fan-made demo — there's no real support team because there's nothing real to support! No real money, items, or trades ever touch this site. If something looks broken, refresh the page; your demo garage is saved in your browser."],
-  fair: ["🛡️ Provably Fair", "Every coinflip, jackpot draw and mines board is generated by your own browser's random number generator, weighted exactly by the displayed percentages. The whole game logic is open source — open the page source and read js/app.js to verify it yourself."],
+  fair: ["🛡️ Provably Fair", "Every coinflip, jackpot draw, mines board and crash point is generated by your own browser's random number generator, weighted exactly by the displayed percentages. The whole game logic is open source — open the page source and read js/app.js to verify it yourself."],
 };
 
 document.addEventListener("click", (e) => {
@@ -133,10 +189,12 @@ function doLogin() {
     avatar: rand(["🙂", "😎", "🥷", "👾", "🤖", "🦊", "🐱"]),
     cash: STARTER_CASH,
     items: [...STARTER_ITEMS],
+    lastBonus: 0,
   };
   save();
   closeModal();
   onLoggedIn();
+  sfx.win();
   addChatMessage({ name: "BloxyBot", avatar: "🤖", verified: true }, `Welcome @${name}! You got a free starter garage 🚗`, true);
 }
 
@@ -150,6 +208,7 @@ function onLoggedIn() {
   $("#chat-input").placeholder = "Say something…";
   $("#chat-send").disabled = false;
   updateWallet();
+  updateGift();
 }
 
 function updateWallet() {
@@ -163,6 +222,50 @@ function requireLogin() {
   return false;
 }
 
+/* ---------- daily bonus ---------- */
+
+const BONUS_COOLDOWN = 24 * 60 * 60 * 1000;
+
+function updateGift() {
+  const ready = user && Date.now() - (user.lastBonus || 0) >= BONUS_COOLDOWN;
+  $("#gift-btn").classList.toggle("ready", !!ready);
+}
+
+$("#gift-btn").addEventListener("click", () => {
+  if (!requireLogin()) return;
+  const left = BONUS_COOLDOWN - (Date.now() - (user.lastBonus || 0));
+  if (left > 0) {
+    const h = Math.floor(left / 3600000), m = Math.ceil((left % 3600000) / 60000);
+    return toast(`Next daily bonus in ${h}h ${m}m ⏳`);
+  }
+  user.lastBonus = Date.now();
+  user.cash += DAILY_BONUS;
+  updateWallet();
+  updateGift();
+  confetti();
+  sfx.win();
+  toast(`🎁 Daily bonus: +🪙 ${fmt(DAILY_BONUS)}!`, "success");
+});
+
+setInterval(updateGift, 60000);
+
+/* ---------- leaderboard ---------- */
+
+function renderLeaderboard() {
+  const rows = BOTS.slice(0, 7).map(b => ({
+    name: b.name, avatar: b.avatar, value: randInt(8, 120) * 250000, me: false,
+  }));
+  if (user) rows.push({ name: user.name, avatar: user.avatar, value: user.cash + itemsValue(user.items), me: true });
+  rows.sort((a, b) => b.value - a.value);
+  $("#leaderboard").innerHTML = rows.slice(0, 8).map((r, i) =>
+    `<div class="lb-row ${r.me ? "me" : ""}">
+      <span class="lb-rank">${i + 1}</span>
+      <span class="avatar avatar-sm">${r.avatar}</span>
+      <span class="lb-name">${r.name}${r.me ? " (you)" : ""}</span>
+      <span class="lb-value">🪙 ${fmt(r.value)}</span>
+    </div>`).join("");
+}
+
 /* ---------- inventory ---------- */
 
 function itemChip(id) {
@@ -170,17 +273,32 @@ function itemChip(id) {
   return `<span class="item-chip r-${it.rarity}" title="${it.name} — ${fmt(it.value)}">${it.icon}</span>`;
 }
 
+function invCard(it, extra = "") {
+  return `<div class="inv-item r-${it.rarity}" ${extra}>
+    <span class="big">${it.icon}</span>
+    <strong>${it.name}</strong>
+    <small>🪙 ${fmt(it.value)}</small>
+    <span class="rarity-tag ${it.rarity}">${RARITY_LABEL[it.rarity]}</span>
+  </div>`;
+}
+
 function renderInventory() {
   const grid = $("#inv-grid");
   if (!user || user.items.length === 0) {
-    grid.innerHTML = `<p class="muted">${user ? "Your garage is empty. Win some flips!" : "Login to see your garage."}</p>`;
+    grid.innerHTML = `<p class="muted">${user ? "Your garage is empty. Win some 1v1s!" : "Login to see your garage."}</p>`;
     return;
   }
-  grid.innerHTML = user.items.map(id => {
-    const it = ITEM_BY_ID[id];
-    return `<div class="inv-item"><span class="big">${it.icon}</span><strong>${it.name}</strong><small>🪙 ${fmt(it.value)}</small></div>`;
-  }).join("");
+  const q = ($("#inv-search").value || "").toLowerCase();
+  const sort = $("#inv-sort").value;
+  let items = user.items.map(id => ITEM_BY_ID[id]).filter(it => it.name.toLowerCase().includes(q));
+  if (sort === "value-desc") items.sort((a, b) => b.value - a.value);
+  if (sort === "value-asc") items.sort((a, b) => a.value - b.value);
+  if (sort === "name") items.sort((a, b) => a.name.localeCompare(b.name));
+  grid.innerHTML = items.map(it => invCard(it)).join("") || `<p class="muted">No rides match "${q}".</p>`;
 }
+
+$("#inv-search").addEventListener("input", renderInventory);
+$("#inv-sort").addEventListener("change", renderInventory);
 
 /* ---------- item picker ---------- */
 
@@ -193,13 +311,18 @@ function openPicker({ title, min = 0, max = Infinity, onConfirm }) {
     ? "Pick any of your items."
     : `Pick items worth 🪙 ${fmt(min)} – ${fmt(max)} to match the lobby.`;
   const grid = $("#picker-grid");
-  grid.innerHTML = user.items.map((id, idx) => {
-    const it = ITEM_BY_ID[id];
-    return `<button class="inv-item" data-idx="${idx}"><span class="big">${it.icon}</span><strong>${it.name}</strong><small>🪙 ${fmt(it.value)}</small></button>`;
-  }).join("") || `<p class="muted">No items in your garage.</p>`;
+  const sorted = user.items.map((id, idx) => ({ it: ITEM_BY_ID[id], idx })).sort((a, b) => b.it.value - a.it.value);
+  grid.innerHTML = sorted.map(({ it, idx }) =>
+    `<button class="inv-item r-${it.rarity}" data-idx="${idx}">
+      <span class="big">${it.icon}</span>
+      <strong>${it.name}</strong>
+      <small>🪙 ${fmt(it.value)}</small>
+      <span class="rarity-tag ${it.rarity}">${RARITY_LABEL[it.rarity]}</span>
+    </button>`).join("") || `<p class="muted">No items in your garage.</p>`;
   grid.onclick = (e) => {
     const btn = e.target.closest("[data-idx]");
     if (!btn) return;
+    sfx.click();
     const idx = Number(btn.dataset.idx);
     if (pickerState.selected.has(idx)) pickerState.selected.delete(idx);
     else pickerState.selected.add(idx);
@@ -216,7 +339,6 @@ function updatePickerTotal() {
   $("#picker-total").textContent = `🪙 ${fmt(total)}`;
   const ok = ids.length > 0 && total >= pickerState.min && total <= pickerState.max;
   $("#picker-confirm").disabled = !ok;
-  $("#picker-confirm").style.opacity = ok ? 1 : 0.4;
 }
 
 $("#picker-confirm").addEventListener("click", () => {
@@ -238,7 +360,7 @@ function makeBotLobby() {
 }
 
 function seedLobbies() {
-  lobbies = Array.from({ length: 5 }, makeBotLobby);
+  lobbies = Array.from({ length: 6 }, makeBotLobby);
 }
 
 function renderLobbies() {
@@ -287,19 +409,7 @@ $("#cf-create-btn").addEventListener("click", () => {
       renderLobbies();
       // a bot finds the lobby after a few seconds
       setTimeout(() => {
-        const bot = rand(BOTS);
-        const target = itemsValue(ids);
-        const botItems = [];
-        let v = 0;
-        while (v < target * 0.95) {
-          const pool = ITEMS.filter(i => v + i.value <= target * 1.1);
-          if (!pool.length) break;
-          const pick = rand(pool);
-          botItems.push(pick.id);
-          v += pick.value;
-        }
-        if (!botItems.length) botItems.push(ITEMS[ITEMS.length - 1].id);
-        runFlip(lobby, bot, botItems, true);
+        runFlip(lobby, rand(BOTS), matchItems(itemsValue(ids)), true);
       }, randInt(2500, 5000));
     },
   });
@@ -333,9 +443,11 @@ function runFlip(lobby, joiner, joinerItems, userIsHost) {
   const coin = $("#flip-coin");
   coin.classList.add("coin-spin");
   openModal("#modal-flip");
+  const tick = setInterval(sfx.tick, 220);
 
   const hostWins = Math.random() < hostPct;
   setTimeout(() => {
+    clearInterval(tick);
     coin.classList.remove("coin-spin");
     coin.style.transform = hostWins ? "rotateY(0deg)" : "rotateY(180deg)";
 
@@ -348,11 +460,14 @@ function runFlip(lobby, joiner, joinerItems, userIsHost) {
       res.textContent = `🎉 You won 🪙 ${fmt(total)}!`;
       res.classList.add("win");
       confetti();
+      sfx.win();
     } else {
       res.textContent = `${winnerName} won 🪙 ${fmt(total)} 💀`;
       res.classList.add("lose");
+      sfx.lose();
     }
     history.unshift({
+      game: "Coinflip",
       vs: userIsHost ? joiner.name : lobby.host.name,
       value: total,
       won: userWon,
@@ -366,7 +481,7 @@ function runFlip(lobby, joiner, joinerItems, userIsHost) {
 
 $("#cf-history-btn").addEventListener("click", () => {
   $("#history-list").innerHTML = history.length
-    ? history.map(h => `<div class="history-row"><span>vs ${h.vs}</span><span>🪙 ${fmt(h.value)}</span><span class="${h.won ? "win" : "lose"}">${h.won ? "WIN" : "LOSS"}</span><span class="muted">${h.time}</span></div>`).join("")
+    ? history.map(h => `<div class="history-row"><span>${h.game || "Coinflip"} vs ${h.vs}</span><span>🪙 ${fmt(h.value)}</span><span class="${h.won ? "win" : "lose"}">${h.won ? "WIN" : "LOSS"}</span><span class="muted">${h.time}</span></div>`).join("")
     : `<p class="muted">No games yet.</p>`;
   openModal("#modal-history");
 });
@@ -374,6 +489,7 @@ $("#cf-history-btn").addEventListener("click", () => {
 /* ---------- jackpot ---------- */
 
 function jackpotTick() {
+  if (jackpot.drawing) return;
   jackpot.timer--;
   // bots wander in
   if (jackpot.timer > 3 && Math.random() < 0.25 && jackpot.entries.length < 6) {
@@ -398,16 +514,25 @@ function renderJackpot() {
 }
 
 function drawJackpot() {
-  const total = jackpot.entries.reduce((s, e) => s + itemsValue(e.items), 0);
-  const result = $("#jp-result");
-  if (jackpot.entries.length >= 2) {
-    let roll = Math.random() * total;
-    let winner = jackpot.entries[0];
-    for (const e of jackpot.entries) {
-      roll -= itemsValue(e.items);
-      if (roll <= 0) { winner = e; break; }
-    }
-    const allItems = jackpot.entries.flatMap(e => e.items);
+  const entries = jackpot.entries;
+  const total = entries.reduce((s, e) => s + itemsValue(e.items), 0);
+  if (entries.length < 2) {
+    jackpot = { entries, timer: 20, userEntered: jackpot.userEntered, drawing: false };
+    return;
+  }
+
+  // pick winner weighted by value
+  let roll = Math.random() * total;
+  let winner = entries[0];
+  for (const e of entries) {
+    roll -= itemsValue(e.items);
+    if (roll <= 0) { winner = e; break; }
+  }
+
+  jackpot.drawing = true;
+  spinJackpotWheel(entries, winner, () => {
+    const allItems = entries.flatMap(e => e.items);
+    const result = $("#jp-result");
     result.classList.remove("hidden", "win", "lose");
     if (winner.isUser) {
       user.items.push(...allItems);
@@ -415,17 +540,54 @@ function drawJackpot() {
       result.textContent = `🎉 You won the 🪙 ${fmt(total)} pot!`;
       result.classList.add("win");
       confetti();
+      sfx.win();
+      history.unshift({ game: "Jackpot", vs: "the pot", value: total, won: true, time: nowTime() });
     } else {
       result.textContent = `${winner.avatar} ${winner.name} won the 🪙 ${fmt(total)} pot.`;
       result.classList.add(jackpot.userEntered ? "lose" : "win");
+      if (jackpot.userEntered) {
+        sfx.lose();
+        history.unshift({ game: "Jackpot", vs: "the pot", value: total, won: false, time: nowTime() });
+      }
     }
-  }
-  jackpot = { entries: [], timer: 20, userEntered: false };
+    save();
+    jackpot = { entries: [], timer: 20, userEntered: false, drawing: false };
+    renderJackpot();
+  });
+}
+
+function spinJackpotWheel(entries, winner, done) {
+  const wheel = $("#jp-wheel");
+  const strip = $("#jp-strip");
+  wheel.classList.remove("hidden");
+
+  // weighted strip of avatars, winner placed near the end
+  const pool = entries.flatMap(e => Array(Math.max(1, Math.round(itemsValue(e.items) / 200000))).fill(e));
+  const tiles = Array.from({ length: 40 }, () => rand(pool));
+  const winIdx = 34;
+  tiles[winIdx] = winner;
+  strip.innerHTML = tiles.map(e => `<span class="avatar avatar-md">${e.avatar}</span>`).join("");
+
+  const tileW = 56; // 48px avatar + 8px gap
+  const target = winIdx * tileW + 24 - wheel.clientWidth / 2;
+  strip.style.transition = "none";
+  strip.style.transform = "translateX(0)";
+  void strip.offsetWidth; // restart transition
+  strip.style.transition = "transform 3.2s cubic-bezier(0.12, 0.8, 0.18, 1)";
+  strip.style.transform = `translateX(${-target}px)`;
+
+  const tick = setInterval(sfx.tick, 140);
+  setTimeout(() => {
+    clearInterval(tick);
+    done();
+    setTimeout(() => wheel.classList.add("hidden"), 2500);
+  }, 3400);
 }
 
 $("#jp-join-btn").addEventListener("click", () => {
   if (!requireLogin()) return;
   if (jackpot.userEntered) return toast("You're already in this pot!", "error");
+  if (jackpot.drawing) return toast("Wait for the next round!", "error");
   openPicker({
     title: "Deposit into the jackpot",
     onConfirm: (ids) => {
@@ -436,82 +598,194 @@ $("#jp-join-btn").addEventListener("click", () => {
   });
 });
 
-/* ---------- mines ---------- */
+/* ---------- PVP mines (1v1) ---------- */
 
-function renderMinesGrid() {
-  const grid = $("#mines-grid");
-  grid.innerHTML = Array.from({ length: 25 }, (_, i) =>
-    `<button class="mine-tile" data-tile="${i}" ${mines ? "" : "disabled"}></button>`).join("");
+$("#mines-find").addEventListener("click", () => {
+  if (!requireLogin()) return;
+  openPicker({
+    title: "Wager your rides — 1v1 Mines",
+    onConfirm: (ids) => startMinesMatch(ids),
+  });
+});
+
+$("#mines-again").addEventListener("click", () => {
+  mines = null;
+  $("#mines-match").classList.add("hidden");
+  $("#mines-setup").classList.remove("hidden");
+});
+
+function startMinesMatch(wager) {
+  const bot = rand(BOTS);
+  const botItems = matchItems(itemsValue(wager));
+  const bombCount = Number($("#mines-count").value);
+  const bombs = new Set();
+  while (bombs.size < bombCount) bombs.add(randInt(0, 24));
+
+  mines = { wager, bot, botItems, bombs, revealed: new Set(), turn: "you", over: false };
+
+  $("#mines-setup").classList.add("hidden");
+  $("#mines-match").classList.remove("hidden");
+  $("#mines-again").classList.add("hidden");
+  $("#mines-av-you").textContent = user.avatar;
+  $("#mines-name-you").textContent = user.name;
+  $("#mines-av-opp").textContent = bot.avatar;
+  $("#mines-name-opp").textContent = bot.name;
+  $("#mines-pot-value").textContent = "🪙 " + fmt(itemsValue(wager) + itemsValue(botItems));
+
+  $("#mines-grid").innerHTML = Array.from({ length: 25 }, (_, i) =>
+    `<button class="mine-tile" data-tile="${i}"></button>`).join("");
+  setMinesTurn("you");
 }
 
-$("#mines-start").addEventListener("click", () => {
-  if (!requireLogin()) return;
-  const bet = Number($("#mines-bet").value) || 0;
+function setMinesTurn(turn) {
+  mines.turn = turn;
+  $("#mines-p-you").classList.toggle("turn", turn === "you");
+  $("#mines-p-opp").classList.toggle("turn", turn === "bot");
+  const msg = $("#mines-msg");
+  msg.className = "mines-msg";
+  msg.textContent = turn === "you" ? "Your turn — pick a tile! 💎" : `${mines.bot.name} is picking…`;
+  $$("#mines-grid .mine-tile").forEach(t => {
+    t.disabled = turn !== "you" || mines.revealed.has(Number(t.dataset.tile));
+  });
+  if (turn === "bot") setTimeout(botMinesPick, randInt(900, 1700));
+}
+
+function revealMinesTile(i, byBot) {
+  const tile = $(`[data-tile="${i}"]`);
+  mines.revealed.add(i);
+  tile.disabled = true;
+  if (mines.bombs.has(i)) {
+    tile.classList.add("bomb");
+    tile.textContent = "💣";
+    sfx.bomb();
+    endMinesMatch(!byBot ? "lose" : "win");
+    return true;
+  }
+  tile.classList.add("gem");
+  if (byBot) tile.classList.add("bot-pick");
+  tile.textContent = "💎";
+  sfx.gem();
+  return false;
+}
+
+$("#mines-grid").addEventListener("click", (e) => {
+  const tile = e.target.closest("[data-tile]");
+  if (!tile || !mines || mines.over || mines.turn !== "you") return;
+  const i = Number(tile.dataset.tile);
+  if (mines.revealed.has(i)) return;
+  if (!revealMinesTile(i, false)) setMinesTurn("bot");
+});
+
+function botMinesPick() {
+  if (!mines || mines.over) return;
+  const open = Array.from({ length: 25 }, (_, i) => i).filter(i => !mines.revealed.has(i));
+  if (!revealMinesTile(rand(open), true)) setMinesTurn("you");
+}
+
+function endMinesMatch(outcome) {
+  mines.over = true;
+  // show remaining bombs
+  [...mines.bombs].forEach(b => {
+    const t = $(`[data-tile="${b}"]`);
+    t.disabled = true;
+    if (!t.textContent) { t.classList.add("bomb"); t.textContent = "💣"; }
+  });
+  $$("#mines-grid .mine-tile").forEach(t => t.disabled = true);
+  $("#mines-p-you").classList.remove("turn");
+  $("#mines-p-opp").classList.remove("turn");
+
+  const pot = itemsValue(mines.wager) + itemsValue(mines.botItems);
+  const msg = $("#mines-msg");
+  if (outcome === "win") {
+    user.items.push(...mines.wager, ...mines.botItems);
+    msg.textContent = `🎉 ${mines.bot.name} hit a bomb — you win 🪙 ${fmt(pot)}!`;
+    msg.className = "mines-msg win";
+    confetti();
+    sfx.win();
+  } else {
+    msg.textContent = `💥 You hit a bomb — ${mines.bot.name} takes 🪙 ${fmt(pot)}.`;
+    msg.className = "mines-msg lose";
+    sfx.lose();
+  }
+  history.unshift({ game: "PVP Mines", vs: mines.bot.name, value: pot, won: outcome === "win", time: nowTime() });
+  updateWallet();
+  $("#mines-again").classList.remove("hidden");
+}
+
+/* ---------- crash ---------- */
+
+function renderCrashBusts() {
+  $("#crash-busts").innerHTML = crashBusts.slice(-10).map(b =>
+    `<span class="crash-bust-chip ${b >= 2 ? "hi" : "lo"}">${b.toFixed(2)}x</span>`).join("");
+}
+
+$("#crash-start").addEventListener("click", () => {
+  if (!requireLogin() || crash) return;
+  const bet = Number($("#crash-bet").value) || 0;
   if (bet < 1000) return toast("Minimum bet is 🪙 1,000.", "error");
   if (bet > user.cash) return toast(`Not enough coins — you have 🪙 ${fmt(user.cash)}.`, "error");
   user.cash -= bet;
   updateWallet();
 
-  const count = Number($("#mines-count").value);
-  const bombs = new Set();
-  while (bombs.size < count) bombs.add(randInt(0, 24));
-  mines = { bet, bombs, revealed: new Set(), mult: 1 };
-  renderMinesGrid();
-  $("#mines-cashout").classList.remove("hidden");
-  $("#mines-mult").textContent = "1.00x";
-  $("#mines-msg").textContent = "Pick a tile…";
+  // bust point: 1/(1-u) gives a fair heavy-tail curve, capped at 100x
+  const bust = Math.min(100, Math.max(1, 0.99 / (1 - Math.random())));
+  crash = { bet, bust, mult: 1, t: 0 };
+
+  $("#crash-start").classList.add("hidden");
+  $("#crash-cashout").classList.remove("hidden");
+  const multEl = $("#crash-mult");
+  multEl.className = "crash-mult";
+  $("#crash-msg").textContent = "Hold on… 🚀";
+
+  crash.timer = setInterval(() => {
+    crash.t += 0.05;
+    crash.mult = Math.exp(crash.t * 0.18);
+    if (crash.mult >= crash.bust) return bustCrash();
+    multEl.textContent = crash.mult.toFixed(2) + "x";
+    $("#crash-cashout").textContent = `Cash out 🪙 ${fmt(crash.bet * crash.mult)}`;
+    const p = Math.min(1, Math.log(crash.mult) / Math.log(20));
+    const rocket = $("#crash-rocket");
+    rocket.style.left = (8 + p * 74) + "%";
+    rocket.style.bottom = (6 + p * 70) + "%";
+    if (Math.random() < 0.2) sfx.tick();
+  }, 50);
 });
 
-$("#mines-grid").addEventListener("click", (e) => {
-  const tile = e.target.closest("[data-tile]");
-  if (!tile || !mines) return;
-  const i = Number(tile.dataset.tile);
-  if (mines.revealed.has(i)) return;
-  mines.revealed.add(i);
-
-  if (mines.bombs.has(i)) {
-    tile.classList.add("bomb");
-    tile.textContent = "💣";
-    [...mines.bombs].forEach(b => {
-      const t = $(`[data-tile="${b}"]`);
-      t.classList.add("bomb");
-      t.textContent = "💣";
-    });
-    $("#mines-msg").textContent = `💥 Boom! You lost 🪙 ${fmt(mines.bet)}.`;
-    endMines();
-    return;
-  }
-
-  tile.classList.add("gem");
-  tile.textContent = "💎";
-  const picks = [...mines.revealed].filter(t => !mines.bombs.has(t)).length;
-  const tiles = 25, bombCount = mines.bombs.size;
-  // fair multiplier: odds of surviving this many picks
-  let mult = 1;
-  for (let k = 0; k < picks; k++) mult *= (tiles - k) / (tiles - bombCount - k);
-  mines.mult = mult;
-  $("#mines-mult").textContent = mult.toFixed(2) + "x";
-  $("#mines-msg").textContent = `Safe! Cash out for 🪙 ${fmt(mines.bet * mult)}?`;
-
-  if (picks === tiles - bombCount) cashOutMines(); // cleared the board
-});
-
-$("#mines-cashout").addEventListener("click", cashOutMines);
-
-function cashOutMines() {
-  if (!mines) return;
-  const winnings = Math.floor(mines.bet * mines.mult);
+$("#crash-cashout").addEventListener("click", () => {
+  if (!crash) return;
+  const winnings = Math.floor(crash.bet * crash.mult);
+  const mult = crash.mult;
+  stopCrash();
   user.cash += winnings;
   updateWallet();
-  $("#mines-msg").textContent = `💰 Cashed out 🪙 ${fmt(winnings)} (${mines.mult.toFixed(2)}x)!`;
-  if (mines.mult > 1) confetti();
-  endMines();
+  const multEl = $("#crash-mult");
+  multEl.classList.add("cashed");
+  $("#crash-msg").textContent = `💰 Cashed out 🪙 ${fmt(winnings)} at ${mult.toFixed(2)}x!`;
+  if (mult >= 1.5) confetti();
+  sfx.win();
+});
+
+function bustCrash() {
+  const bust = crash.bust;
+  const bet = crash.bet;
+  stopCrash();
+  crashBusts.push(bust);
+  renderCrashBusts();
+  const multEl = $("#crash-mult");
+  multEl.textContent = bust.toFixed(2) + "x";
+  multEl.classList.add("busted");
+  $("#crash-msg").textContent = `💥 Busted at ${bust.toFixed(2)}x — lost 🪙 ${fmt(bet)}.`;
+  sfx.bomb();
 }
 
-function endMines() {
-  mines = null;
-  $("#mines-cashout").classList.add("hidden");
-  $$("#mines-grid .mine-tile").forEach(t => t.disabled = true);
+function stopCrash() {
+  clearInterval(crash.timer);
+  crash = null;
+  $("#crash-start").classList.remove("hidden");
+  $("#crash-cashout").classList.add("hidden");
+  const rocket = $("#crash-rocket");
+  rocket.style.left = "8%";
+  rocket.style.bottom = "6%";
 }
 
 /* ---------- chat ---------- */
@@ -543,6 +817,7 @@ function sendChat() {
   if (!text || !user) return;
   addChatMessage({ name: user.name, avatar: user.avatar, verified: false }, text, true);
   input.value = "";
+  sfx.click();
 }
 $("#chat-send").addEventListener("click", sendChat);
 $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
@@ -565,8 +840,9 @@ function tickerLoop() {
   const it = rand(ITEMS);
   const lines = [
     `<strong>@${rand(BOTS).name}</strong> just won ${it.icon} ${it.name} (🪙 ${fmt(it.value)}) on Coinflip!`,
-    `<strong>@${rand(BOTS).name}</strong> cashed out ${(1 + Math.random() * 8).toFixed(2)}x on Mines 💣`,
+    `<strong>@${rand(BOTS).name}</strong> cashed out ${(1 + Math.random() * 8).toFixed(2)}x on Crash 🚀`,
     `<strong>@${rand(BOTS).name}</strong> took a 🪙 ${fmt(randInt(2, 40) * 100000)} jackpot 🎰`,
+    `<strong>@${rand(BOTS).name}</strong> won a 1v1 Mines for ${it.icon} ${it.name} ⚔️`,
   ];
   $("#ticker-text").innerHTML = rand(lines);
   setTimeout(tickerLoop, randInt(4000, 8000));
@@ -575,10 +851,12 @@ function tickerLoop() {
 /* ---------- boot ---------- */
 
 load();
+$("#sound-btn").textContent = soundOn ? "🔊" : "🔇";
 seedLobbies();
 renderLobbies();
 renderJackpot();
-renderMinesGrid();
+renderLeaderboard();
+renderCrashBusts();
 seedChat();
 chatLoop();
 tickerLoop();
