@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: rideclash-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: CLIENT_ORIGIN
+        value: https://armageddonai.github.io
+      - key: BASE_URL
+        sync: false # set to this service's public URL after first deploy
+      - key: SECRET
+        generateValue: true
+      - key: ROBLOX_CLIENT_ID
+        sync: false # optional: enables Sign in with Roblox
+      - key: ROBLOX_CLIENT_SECRET
+        sync: false # optional: enables Sign in with Roblox

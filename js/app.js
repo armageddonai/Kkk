@@ -23,6 +23,15 @@ function nowTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// Avatars are either an emoji or (in live mode) a Roblox headshot URL.
+function avatarHTML(av) {
+  if (av && /^https?:\/\//.test(av)) return `<img src="${av.replace(/"/g, "")}" alt="" />`;
+  return av || "🙂";
+}
+
+// Live-mode helper: report item changes from local minigames to the server.
+function syncAdd(ids) { if (window.net?.online && ids.length) net.syncDelta(ids, []); }
+
 // Picks bot items whose total lands inside [target*0.95, target*1.1].
 function matchItems(target) {
   const out = [];
@@ -191,6 +200,13 @@ $("#login-name").addEventListener("keydown", (e) => { if (e.key === "Enter") doL
 function doLogin() {
   const name = $("#login-name").value.trim();
   if (!name) return;
+  if (window.net?.backend) {
+    // live mode: the server owns the account (and finds your real Roblox avatar)
+    closeModal();
+    toast("Connecting…");
+    net.guestLogin(name);
+    return;
+  }
   user = {
     name,
     avatar: rand(["🙂", "😎", "🥷", "👾", "🤖", "🦊", "🐱"]),
@@ -207,7 +223,7 @@ function doLogin() {
 function onLoggedIn() {
   $("#login-btn").classList.add("hidden");
   $("#user-chip").classList.remove("hidden");
-  $("#user-avatar").textContent = user.avatar;
+  $("#user-avatar").innerHTML = avatarHTML(user.avatar);
   $("#user-name").textContent = user.name;
   $("#wallet").classList.remove("hidden");
   $("#chat-input").disabled = false;
@@ -239,6 +255,7 @@ function updateGift() {
 
 $("#gift-btn").addEventListener("click", () => {
   if (!requireLogin()) return;
+  if (window.net?.online) return net.claimGift();
   const left = BONUS_COOLDOWN - (Date.now() - (user.lastBonus || 0));
   if (left > 0) {
     const h = Math.floor(left / 3600000), m = Math.ceil((left % 3600000) / 60000);
@@ -267,7 +284,7 @@ function renderLeaderboard() {
   $("#leaderboard").innerHTML = rows.slice(0, 8).map((r, i) =>
     `<div class="lb-row ${r.me ? "me" : ""}">
       <span class="lb-rank">${i + 1}</span>
-      <span class="avatar avatar-sm">${r.avatar}</span>
+      <span class="avatar avatar-sm">${avatarHTML(r.avatar)}</span>
       <span class="lb-name">${r.name}${r.me ? " (you)" : ""}</span>
       <span class="lb-value">🪙 ${fmt(r.value)}</span>
     </div>`).join("");
@@ -315,8 +332,8 @@ $("#inv-type").addEventListener("change", renderInventory);
 
 let pickerState = null; // { selected:Set, min, max, onConfirm }
 
-function openPicker({ title, min = 0, max = Infinity, onConfirm }) {
-  pickerState = { selected: new Set(), min, max, onConfirm };
+function openPicker({ title, min = 0, max = Infinity, sync = false, onConfirm }) {
+  pickerState = { selected: new Set(), min, max, sync, onConfirm };
   $("#picker-title").textContent = title;
   $("#picker-range").textContent = max === Infinity
     ? "Pick any of your items."
@@ -357,6 +374,8 @@ $("#picker-confirm").addEventListener("click", () => {
   const idxs = [...pickerState.selected].sort((a, b) => b - a);
   const ids = idxs.map(i => user.items[i]);
   idxs.forEach(i => user.items.splice(i, 1)); // items leave the garage while in play
+  // local minigame wagers tell the live server the items left the garage
+  if (pickerState.sync && window.net?.online) net.syncDelta([], ids);
   updateWallet();
   closeModal();
   pickerState.onConfirm(ids);
@@ -387,19 +406,23 @@ function renderLobbies() {
     return `<div class="lobby">
       ${l.isUser ? `<div class="lobby-mine-tag">YOUR LOBBY — waiting for opponent…</div>` : ""}
       <div class="lobby-heads">
-        <span class="avatar avatar-md side-h">${l.host.avatar}</span>
+        <span class="avatar avatar-md side-h">${avatarHTML(l.host.avatar)}</span>
         <span class="lobby-vs">VS</span>
         <span class="avatar avatar-md">?</span>
       </div>
       <div class="lobby-items">${chips}</div>
       <div class="lobby-value">🪙 ${fmt(val)}</div>
       <div class="lobby-range">${fmt(val * 0.95)} – ${fmt(val * 1.1)}</div>
-      ${l.isUser ? "" : `<button class="btn btn-primary" data-join="${l.id}">Join</button>`}
+      ${l.isUser
+        ? (window.net?.online ? `<button class="btn btn-dark" data-cancel="${l.id}">Cancel</button>` : "")
+        : `<button class="btn btn-primary" data-join="${l.id}">Join</button>`}
     </div>`;
   }).join("");
 }
 
 $("#cf-lobbies").addEventListener("click", (e) => {
+  const cancel = e.target.closest("[data-cancel]");
+  if (cancel) return net.cancelLobby();
   const btn = e.target.closest("[data-join]");
   if (!btn || !requireLogin()) return;
   const lobby = lobbies.find(l => l.id === btn.dataset.join);
@@ -409,7 +432,10 @@ $("#cf-lobbies").addEventListener("click", (e) => {
     title: `Join ${lobby.host.name}'s flip`,
     min: val * 0.95,
     max: val * 1.1,
-    onConfirm: (ids) => runFlip(lobby, { name: user.name, avatar: user.avatar }, ids, false),
+    onConfirm: (ids) => {
+      if (window.net?.online) return net.joinLobby(lobby.id, ids);
+      runFlip(lobby, { name: user.name, avatar: user.avatar }, ids, false);
+    },
   });
 });
 
@@ -418,6 +444,7 @@ $("#cf-create-btn").addEventListener("click", () => {
   openPicker({
     title: "Create a coinflip",
     onConfirm: (ids) => {
+      if (window.net?.online) return net.createLobby(ids);
       const lobby = { id: randHash().slice(0, 8), host: { name: user.name, avatar: user.avatar }, items: ids, isUser: true };
       lobbies.unshift(lobby);
       renderLobbies();
@@ -429,57 +456,58 @@ $("#cf-create-btn").addEventListener("click", () => {
   });
 });
 
-function runFlip(lobby, joiner, joinerItems, userIsHost) {
-  lobbies = lobbies.filter(l => l.id !== lobby.id);
-  renderLobbies();
-
-  const hostVal = itemsValue(lobby.items);
+function setupFlipModal(host, hostItems, joiner, joinerItems, hash) {
+  const hostVal = itemsValue(hostItems);
   const joinVal = itemsValue(joinerItems);
   const total = hostVal + joinVal;
   const hostPct = hostVal / total;
 
-  $("#flip-av1").textContent = lobby.host.avatar;
-  $("#flip-name1").textContent = lobby.host.name;
-  $("#flip-av2").textContent = joiner.avatar;
+  $("#flip-av1").innerHTML = avatarHTML(host.avatar);
+  $("#flip-name1").textContent = host.name;
+  $("#flip-av2").innerHTML = avatarHTML(joiner.avatar);
   $("#flip-name2").textContent = joiner.name;
-  $("#flip-hash").textContent = "# " + randHash();
+  $("#flip-hash").textContent = "# " + hash;
   $("#flip-val1").innerHTML = `🪙 ${fmt(hostVal)} <em>${(hostPct * 100).toFixed(2)}%</em>`;
   $("#flip-val2").innerHTML = `🪙 ${fmt(joinVal)} <em>${((1 - hostPct) * 100).toFixed(2)}%</em>`;
   const itemRow = (id) => {
     const it = ITEM_BY_ID[id];
     return `<div class="flip-item"><span>${it.icon}</span><span>${it.name}<small>🪙 ${fmt(it.value)}</small></span></div>`;
   };
-  $("#flip-items1").innerHTML = lobby.items.map(itemRow).join("");
+  $("#flip-items1").innerHTML = hostItems.map(itemRow).join("");
   $("#flip-items2").innerHTML = joinerItems.map(itemRow).join("");
   $("#flip-result").textContent = "";
   $("#flip-result").className = "flip-result";
 
-  const coin = $("#flip-coin");
-  coin.classList.add("coin-spin");
+  $("#flip-coin").classList.add("coin-spin");
   openModal("#modal-flip");
-  const tick = setInterval(sfx.tick, 220);
+  return { hostPct, total };
+}
 
+function revealFlip(hostWins, text, won) {
+  const coin = $("#flip-coin");
+  coin.classList.remove("coin-spin");
+  coin.style.transform = hostWins ? "rotateY(0deg)" : "rotateY(180deg)";
+  const res = $("#flip-result");
+  res.textContent = text;
+  res.classList.add(won ? "win" : "lose");
+  if (won) { confetti(); sfx.win(); } else { sfx.lose(); }
+}
+
+function runFlip(lobby, joiner, joinerItems, userIsHost) {
+  lobbies = lobbies.filter(l => l.id !== lobby.id);
+  renderLobbies();
+
+  const { hostPct, total } = setupFlipModal(lobby.host, lobby.items, joiner, joinerItems, randHash());
+  const tick = setInterval(sfx.tick, 220);
   const hostWins = Math.random() < hostPct;
+
   setTimeout(() => {
     clearInterval(tick);
-    coin.classList.remove("coin-spin");
-    coin.style.transform = hostWins ? "rotateY(0deg)" : "rotateY(180deg)";
-
     const allItems = [...lobby.items, ...joinerItems];
     const userWon = userIsHost ? hostWins : !hostWins;
     const winnerName = hostWins ? lobby.host.name : joiner.name;
-    const res = $("#flip-result");
-    if (userWon) {
-      user.items.push(...allItems);
-      res.textContent = `🎉 You won 🪙 ${fmt(total)}!`;
-      res.classList.add("win");
-      confetti();
-      sfx.win();
-    } else {
-      res.textContent = `${winnerName} won 🪙 ${fmt(total)} 💀`;
-      res.classList.add("lose");
-      sfx.lose();
-    }
+    if (userWon) user.items.push(...allItems);
+    revealFlip(hostWins, userWon ? `🎉 You won 🪙 ${fmt(total)}!` : `${winnerName} won 🪙 ${fmt(total)} 💀`, userWon);
     history.unshift({
       game: "Coinflip",
       vs: userIsHost ? joiner.name : lobby.host.name,
@@ -490,6 +518,32 @@ function runFlip(lobby, joiner, joinerItems, userIsHost) {
     updateWallet();
     lobbies.push(makeBotLobby()); // keep the list alive
     renderLobbies();
+  }, 2200);
+}
+
+// A flip resolved by the live server: outcome and item transfers are the
+// server's; we only animate and record it.
+function showServerFlip(d) {
+  if (!user) return;
+  const userIsHost = d.host.name === user.name;
+  const userIsJoiner = d.joiner.name === user.name;
+  if (!userIsHost && !userIsJoiner) return; // spectators just see the lobby list update
+
+  const { total } = setupFlipModal(d.host, d.hostItems, d.joiner, d.joinerItems, d.hash);
+  const tick = setInterval(sfx.tick, 220);
+  setTimeout(() => {
+    clearInterval(tick);
+    const userWon = userIsHost ? d.hostWins : !d.hostWins;
+    const winnerName = d.hostWins ? d.host.name : d.joiner.name;
+    revealFlip(d.hostWins, userWon ? `🎉 You won 🪙 ${fmt(total)}!` : `${winnerName} won 🪙 ${fmt(total)} 💀`, userWon);
+    history.unshift({
+      game: "Coinflip",
+      vs: userIsHost ? d.joiner.name : d.host.name,
+      value: total,
+      won: userWon,
+      time: nowTime(),
+    });
+    save();
   }, 2200);
 }
 
@@ -523,7 +577,7 @@ function renderJackpot() {
   $("#jp-entries").innerHTML = jackpot.entries.map(e => {
     const v = itemsValue(e.items);
     const pct = total ? (v / total * 100).toFixed(1) : "0";
-    return `<div class="jp-entry"><span class="avatar avatar-sm">${e.avatar}</span><span>${e.name}${e.isUser ? " (you)" : ""}</span><span>🪙 ${fmt(v)}</span><span class="pct">${pct}%</span></div>`;
+    return `<div class="jp-entry"><span class="avatar avatar-sm">${avatarHTML(e.avatar)}</span><span>${e.name}${e.isUser ? " (you)" : ""}</span><span>🪙 ${fmt(v)}</span><span class="pct">${pct}%</span></div>`;
   }).join("") || `<p class="muted">Pot is empty — be the first in!</p>`;
 }
 
@@ -550,6 +604,7 @@ function drawJackpot() {
     result.classList.remove("hidden", "win", "lose");
     if (winner.isUser) {
       user.items.push(...allItems);
+      syncAdd(allItems);
       updateWallet();
       result.textContent = `🎉 You won the 🪙 ${fmt(total)} pot!`;
       result.classList.add("win");
@@ -580,7 +635,7 @@ function spinJackpotWheel(entries, winner, done) {
   const tiles = Array.from({ length: 40 }, () => rand(pool));
   const winIdx = 34;
   tiles[winIdx] = winner;
-  strip.innerHTML = tiles.map(e => `<span class="avatar avatar-md">${e.avatar}</span>`).join("");
+  strip.innerHTML = tiles.map(e => `<span class="avatar avatar-md">${avatarHTML(e.avatar)}</span>`).join("");
 
   const tileW = 56; // 48px avatar + 8px gap
   const target = winIdx * tileW + 24 - wheel.clientWidth / 2;
@@ -604,6 +659,7 @@ $("#jp-join-btn").addEventListener("click", () => {
   if (jackpot.drawing) return toast("Wait for the next round!", "error");
   openPicker({
     title: "Deposit into the jackpot",
+    sync: true,
     onConfirm: (ids) => {
       jackpot.entries.push({ name: user.name, avatar: user.avatar, items: ids, isUser: true });
       jackpot.userEntered = true;
@@ -618,6 +674,7 @@ $("#mines-find").addEventListener("click", () => {
   if (!requireLogin()) return;
   openPicker({
     title: "Wager your rides — 1v1 Mines",
+    sync: true,
     onConfirm: (ids) => startMinesMatch(ids),
   });
 });
@@ -640,9 +697,9 @@ function startMinesMatch(wager) {
   $("#mines-setup").classList.add("hidden");
   $("#mines-match").classList.remove("hidden");
   $("#mines-again").classList.add("hidden");
-  $("#mines-av-you").textContent = user.avatar;
+  $("#mines-av-you").innerHTML = avatarHTML(user.avatar);
   $("#mines-name-you").textContent = user.name;
-  $("#mines-av-opp").textContent = bot.avatar;
+  $("#mines-av-opp").innerHTML = avatarHTML(bot.avatar);
   $("#mines-name-opp").textContent = bot.name;
   $("#mines-pot-value").textContent = "🪙 " + fmt(itemsValue(wager) + itemsValue(botItems));
 
@@ -712,6 +769,7 @@ function endMinesMatch(outcome) {
   const msg = $("#mines-msg");
   if (outcome === "win") {
     user.items.push(...mines.wager, ...mines.botItems);
+    syncAdd([...mines.wager, ...mines.botItems]);
     msg.textContent = `🎉 ${mines.bot.name} hit a bomb — you win 🪙 ${fmt(pot)}!`;
     msg.className = "mines-msg win";
     confetti();
@@ -737,6 +795,7 @@ $("#crash-start").addEventListener("click", () => {
   if (!requireLogin() || crash) return;
   openPicker({
     title: "Wager rides on Crash",
+    sync: true,
     onConfirm: (ids) => startCrashRound(ids),
   });
 });
@@ -776,6 +835,7 @@ $("#crash-cashout").addEventListener("click", () => {
   // keep your rides and win extra ones worth the profit
   const winnings = matchItems(bet * (mult - 1));
   user.items.push(...wager, ...winnings);
+  syncAdd([...wager, ...winnings]);
   updateWallet();
   const multEl = $("#crash-mult");
   multEl.classList.add("cashed");
@@ -816,7 +876,7 @@ function stopCrash() {
 function addChatMessage(who, text, isMine = false) {
   const el = document.createElement("div");
   el.className = "chat-msg" + (isMine ? " mine" : "");
-  el.innerHTML = `<span class="avatar avatar-sm">${who.avatar}</span>
+  el.innerHTML = `<span class="avatar avatar-sm">${avatarHTML(who.avatar)}</span>
     <div style="flex:1">
       <div class="who">@${who.name} ${who.verified ? `<span class="badge">✅</span>` : ""}</div>
       <div class="body"></div>
@@ -838,9 +898,10 @@ function sendChat() {
   const input = $("#chat-input");
   const text = input.value.trim();
   if (!text || !user) return;
-  addChatMessage({ name: user.name, avatar: user.avatar, verified: false }, text, true);
   input.value = "";
   sfx.click();
+  if (window.net?.online) return net.sendChat(text); // echoes back via broadcast
+  addChatMessage({ name: user.name, avatar: user.avatar, verified: false }, text, true);
 }
 $("#chat-send").addEventListener("click", sendChat);
 $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
@@ -851,8 +912,10 @@ function seedChat() {
 
 function chatLoop() {
   setTimeout(() => {
-    addChatMessage(rand(BOTS), rand(CHAT_LINES));
-    $("#online-count").textContent = String(randInt(105, 134));
+    if (!window.net?.online) { // live mode has real chat and a real online count
+      addChatMessage(rand(BOTS), rand(CHAT_LINES));
+      $("#online-count").textContent = String(randInt(105, 134));
+    }
     chatLoop();
   }, randInt(5000, 12000));
 }
@@ -870,6 +933,39 @@ function tickerLoop() {
   $("#ticker-text").innerHTML = rand(lines);
   setTimeout(tickerLoop, randInt(4000, 8000));
 }
+
+/* ---------- bridge for the live-server layer (js/net.js) ---------- */
+
+window.app = {
+  toast,
+  confetti,
+  showServerFlip,
+  setAccount(acc) {
+    user = { name: acc.name, avatar: acc.avatar, items: acc.items, lastBonus: acc.lastBonus || 0 };
+    onLoggedIn();
+    renderInventory();
+    renderLeaderboard();
+  },
+  setLobbies(list) {
+    lobbies = list.map(l => ({
+      id: l.id, host: l.host, items: l.items,
+      isUser: !!(user && l.host.name === user.name && !l.isBot),
+    }));
+    renderLobbies();
+  },
+  setOnline(n) { $("#online-count").textContent = String(n); },
+  resetChat() { $("#chat-messages").innerHTML = ""; },
+  addServerChat(m) {
+    addChatMessage({ name: m.name, avatar: m.avatar, verified: !!m.roblox }, m.text, !!(user && m.name === user.name));
+  },
+  giftLanded(id) {
+    const it = ITEM_BY_ID[id];
+    updateGift();
+    confetti();
+    sfx.win();
+    toast(`🎁 Daily ride: ${it.icon} ${it.name} (🪙 ${fmt(it.value)})!`, "success");
+  },
+};
 
 /* ---------- boot ---------- */
 
