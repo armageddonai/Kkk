@@ -5,5 +5,5 @@
 //   localStorage.setItem("rideclash-backend", "https://your-server")
 // in the browser console and refreshing.
 window.RIDECLASH_CONFIG = {
-  backend: "",
+  backend: "https://rideclash-server.onrender.com",
 };
