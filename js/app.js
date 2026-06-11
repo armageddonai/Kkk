@@ -1,4 +1,4 @@
-// ===== BloxySpin (Jailbreak edition) — premium demo app =====
+// ===== RideClash (Jailbreak 1v1s) — premium demo app =====
 // Everything runs locally in the browser with pretend currency. Nothing is real.
 
 /* ---------- helpers ---------- */
@@ -40,7 +40,7 @@ function matchItems(target) {
 
 /* ---------- sound (tiny WebAudio synth) ---------- */
 
-let soundOn = localStorage.getItem("bloxyspin-sound") !== "off";
+let soundOn = (localStorage.getItem("rideclash-sound") || localStorage.getItem("bloxyspin-sound")) !== "off";
 let audioCtx = null;
 
 function beep(freq, dur = 0.08, type = "sine", gain = 0.06, delay = 0) {
@@ -71,7 +71,7 @@ const sfx = {
 
 $("#sound-btn").addEventListener("click", () => {
   soundOn = !soundOn;
-  localStorage.setItem("bloxyspin-sound", soundOn ? "on" : "off");
+  localStorage.setItem("rideclash-sound", soundOn ? "on" : "off");
   $("#sound-btn").textContent = soundOn ? "🔊" : "🔇";
   if (soundOn) sfx.click();
 });
@@ -89,12 +89,13 @@ let crashBusts = [];
 /* ---------- persistence ---------- */
 
 function save() {
-  if (user) localStorage.setItem("bloxyspin-user", JSON.stringify(user));
-  localStorage.setItem("bloxyspin-history", JSON.stringify(history.slice(0, 50)));
+  if (user) localStorage.setItem("rideclash-user", JSON.stringify(user));
+  localStorage.setItem("rideclash-history", JSON.stringify(history.slice(0, 50)));
 }
 function load() {
   try {
-    const raw = localStorage.getItem("bloxyspin-user");
+    // fall back to the pre-rebrand key so existing garages survive
+    const raw = localStorage.getItem("rideclash-user") || localStorage.getItem("bloxyspin-user");
     if (raw) {
       user = JSON.parse(raw);
       delete user.cash; // pre-item-economy saves had a coin balance
@@ -102,7 +103,7 @@ function load() {
       if (!user.items.length) user.items = [...STARTER_ITEMS];
       onLoggedIn();
     }
-    const h = localStorage.getItem("bloxyspin-history");
+    const h = localStorage.getItem("rideclash-history") || localStorage.getItem("bloxyspin-history");
     if (h) history = JSON.parse(h);
   } catch (_) { /* fresh start */ }
 }
@@ -200,7 +201,7 @@ function doLogin() {
   closeModal();
   onLoggedIn();
   sfx.win();
-  addChatMessage({ name: "BloxyBot", avatar: "🤖", verified: true }, `Welcome @${name}! You got a free starter garage 🚗`, true);
+  addChatMessage({ name: "ClashBot", avatar: "🤖", verified: true }, `Welcome @${name}! You got a free starter garage 🚗`, true);
 }
 
 function onLoggedIn() {
