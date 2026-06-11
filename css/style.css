@@ -404,6 +404,7 @@ button:disabled { cursor: not-allowed; }
 }
 
 .rarity-tag { font-size: 0.55rem; font-weight: 800; letter-spacing: 1.2px; display: block; margin-top: 3px; }
+.demand-tag { font-size: 0.55rem; font-weight: 700; color: var(--muted); display: block; margin-top: 2px; }
 .rarity-tag.common { color: var(--muted); }
 .rarity-tag.rare { color: var(--accent-2); }
 .rarity-tag.epic { color: var(--purple); }

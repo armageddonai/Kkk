@@ -98,6 +98,8 @@ function load() {
     if (raw) {
       user = JSON.parse(raw);
       delete user.cash; // pre-item-economy saves had a coin balance
+      user.items = (user.items || []).filter(id => ITEM_BY_ID[id]); // drop ids from old rosters
+      if (!user.items.length) user.items = [...STARTER_ITEMS];
       onLoggedIn();
     }
     const h = localStorage.getItem("bloxyspin-history");
@@ -283,6 +285,7 @@ function invCard(it, extra = "") {
     <strong>${it.name}</strong>
     <small>🪙 ${fmt(it.value)}</small>
     <span class="rarity-tag ${it.rarity}">${RARITY_LABEL[it.rarity]}</span>
+    <span class="demand-tag">${DEMAND_LABEL[it.demand]}</span>
   </div>`;
 }
 
@@ -294,7 +297,9 @@ function renderInventory() {
   }
   const q = ($("#inv-search").value || "").toLowerCase();
   const sort = $("#inv-sort").value;
-  let items = user.items.map(id => ITEM_BY_ID[id]).filter(it => it.name.toLowerCase().includes(q));
+  const type = $("#inv-type").value;
+  let items = user.items.map(id => ITEM_BY_ID[id])
+    .filter(it => it.name.toLowerCase().includes(q) && (type === "all" || it.type === type));
   if (sort === "value-desc") items.sort((a, b) => b.value - a.value);
   if (sort === "value-asc") items.sort((a, b) => a.value - b.value);
   if (sort === "name") items.sort((a, b) => a.name.localeCompare(b.name));
@@ -303,6 +308,7 @@ function renderInventory() {
 
 $("#inv-search").addEventListener("input", renderInventory);
 $("#inv-sort").addEventListener("change", renderInventory);
+$("#inv-type").addEventListener("change", renderInventory);
 
 /* ---------- item picker ---------- */
 
@@ -322,6 +328,7 @@ function openPicker({ title, min = 0, max = Infinity, onConfirm }) {
       <strong>${it.name}</strong>
       <small>🪙 ${fmt(it.value)}</small>
       <span class="rarity-tag ${it.rarity}">${RARITY_LABEL[it.rarity]}</span>
+      <span class="demand-tag">${DEMAND_LABEL[it.demand]}</span>
     </button>`).join("") || `<p class="muted">No items in your garage.</p>`;
   grid.onclick = (e) => {
     const btn = e.target.closest("[data-idx]");
@@ -359,7 +366,9 @@ $("#picker-confirm").addEventListener("click", () => {
 function makeBotLobby() {
   const bot = rand(BOTS);
   const count = randInt(1, 4);
-  const items = Array.from({ length: count }, () => rand(ITEMS).id);
+  // mostly mid-tier lobbies; the occasional whale posts a HyperShift-class flip
+  const pool = Math.random() < 0.08 ? ITEMS : ITEMS.filter(i => i.value <= 50000000);
+  const items = Array.from({ length: count }, () => rand(pool).id);
   return { id: randHash().slice(0, 8), host: bot, items, isUser: false };
 }
 
